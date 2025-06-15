@@ -9,4 +9,8 @@
     "express": "^4.18.2",
     "puppeteer": "^21.3.8"
   }
+  "scripts": {
+  "start": "node server.js",
+  "install": "npm install"
+}
 }
