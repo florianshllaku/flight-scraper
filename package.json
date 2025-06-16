@@ -1,5 +1,5 @@
 {
-  "name": "puppeteer-api",
+  "name": "flight-scraper",
   "version": "1.0.0",
   "main": "server.js",
   "scripts": {
