@@ -1,10 +1,12 @@
-import express from "express";
-import puppeteer from "puppeteer";
+const express = require("express");
+const puppeteer = require("puppeteer-core");
+const cors = require("cors");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(express.json()); // <-- IMPORTANT to parse incoming JSON
+app.use(cors());
+app.use(express.json());
 
 app.post("/scrape", async (req, res) => {
   const { from, to, departureDate, returnDate } = req.body;
@@ -20,38 +22,53 @@ app.post("/scrape", async (req, res) => {
 
     const page = await browser.newPage();
     await page.goto("https://prishtinaticket.net", { waitUntil: "domcontentloaded" });
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    await new Promise(r => setTimeout(r, 3000));
 
-    // --- Select fields and enter values ---
+    // Set FROM
+    await page.waitForSelector('select[name="VON"]');
     await page.select('select[name="VON"]', from);
-    await page.select('select[name="NACH"]', to);
-    await page.$eval('input[name="DATUM_HIN"]', (el, value) => el.value = value, departureDate);
-    await page.$eval('input[name="DATUM_RUK"]', (el, value) => el.value = value, returnDate);
-    await page.click('#buchen_aktion');
-    await new Promise(resolve => setTimeout(resolve, 3000));
 
-    // --- Extract prices from tables ---
+    // Set TO
+    await page.waitForSelector('select[name="NACH"]');
+    await page.select('select[name="NACH"]', to);
+
+    // Set Departure Date
+    await page.waitForSelector('input[name="DATUM_HIN"]');
+    await page.$eval('input[name="DATUM_HIN"]', (el, val) => el.value = val, departureDate);
+
+    // Set Return Date
+    await page.waitForSelector('input[name="DATUM_RUK"]');
+    await page.$eval('input[name="DATUM_RUK"]', (el, val) => el.value = val, returnDate);
+
+    // Click Search
+    await page.click("#buchen_aktion");
+    await new Promise(r => setTimeout(r, 3000));
+
+    await page.waitForSelector('#div_hin > table');
+    await page.waitForSelector('#div_ruk > table');
+
     const prices = await page.evaluate((departureDate, returnDate) => {
-      const getFormattedDate = (d) => d.slice(0, 5);
+      const getFormattedDate = (d) => d.slice(0, 5); // "18.06.2025" → "18.06"
 
       const findPrice = (selector, targetDate) => {
         const table = document.querySelector(selector);
-        if (!table) return '❌ Table not found';
+        if (!table) return null;
 
-        const formattedDate = getFormattedDate(targetDate);
         const rows = Array.from(table.querySelectorAll('tr'));
 
         for (let row of rows) {
           const cols = row.querySelectorAll('td');
           if (cols.length < 5) continue;
-          const dateCol = cols[1].innerText.trim();
-          const priceCol = cols[4].innerText.trim();
-          if (dateCol.includes(formattedDate)) {
+
+          const dateCol = cols[1].innerText.trim();   // e.g. 'MËR 18.06'
+          const priceCol = cols[4].innerText.trim();  // e.g. '100 €'
+
+          if (dateCol.includes(getFormattedDate(targetDate))) {
             return priceCol;
           }
         }
 
-        return '❌ Not found';
+        return null;
       };
 
       return {
@@ -61,18 +78,22 @@ app.post("/scrape", async (req, res) => {
     }, departureDate, returnDate);
 
     await browser.close();
-    res.json(prices);
 
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Scraping failed", details: err.message });
+    res.json({
+      from,
+      to,
+      departureDate,
+      returnDate,
+      departurePrice: prices.departurePrice || "Not found",
+      returnPrice: prices.returnPrice || "Not found"
+    });
+
+  } catch (error) {
+    console.error("Scraping error:", error.message);
+    res.status(500).json({ error: "Scraping failed." });
   }
 });
 
-app.get("/", (req, res) => {
-  res.send("✈️ Flight scraper is running!");
-});
-
 app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+  console.log(`🚀 Server running on port ${PORT}`);
 });
